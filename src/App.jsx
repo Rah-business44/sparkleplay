@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy } from "lucide-react";
+import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy, Palette, Eraser } from "lucide-react";
 
-// --- CONFIG (Using your REACT_APP style) ---
+// --- CONFIG ---
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -47,12 +47,16 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [roomId, setRoomId] = useState(null);
   const [view, setView] = useState("lobby");
-  const [roomData, setRoomData] = useState({ hiddenItems: [], storyPage: 0, storyIdx: 0, flashlight: {} });
+  const [roomData, setRoomData] = useState({ hiddenItems: [], storyPage: 0, storyIdx: 0, flashlight: {}, drawingLines: [] });
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [currentColor, setCurrentColor] = useState("#4f46e5"); // Indigo default
+  
+  const canvasRef = useRef(null);
+  const isDrawing = useRef(false);
+  const currentLine = useRef([]);
 
   const roomDocRef = useMemo(() => (roomId ? doc(db, "rooms", roomId) : null), [roomId]);
 
-  // RESET GAME (Wrapped in useCallback to fix the Vercel error)
   const resetGame = useCallback(async () => {
     if (!roomDocRef) return;
     const items = [
@@ -64,7 +68,8 @@ export default function App() {
       hiddenItems: items, 
       storyPage: 0, 
       storyIdx: Math.floor(Math.random() * STORIES.length), 
-      flashlight: {} 
+      flashlight: {},
+      drawingLines: [] 
     });
   }, [roomDocRef]);
 
@@ -79,9 +84,7 @@ export default function App() {
     return onSnapshot(roomDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.lastAction === 'found' && data.lastActionId !== roomData.lastActionId) {
-            playSound('pop');
-        }
+        if (data.lastAction === 'found' && data.lastActionId !== roomData.lastActionId) playSound('pop');
         setRoomData(data);
       } else {
         resetGame();
@@ -89,25 +92,71 @@ export default function App() {
     });
   }, [user, roomDocRef, roomData.lastActionId, resetGame]);
 
-  const handleItemClick = async (itemId) => {
-    const updatedItems = roomData.hiddenItems.map(item => 
-      item.id === itemId ? { ...item, found: true } : item
-    );
-    playSound('pop');
-    await updateDoc(roomDocRef, { 
-        hiddenItems: updatedItems, 
-        lastAction: 'found', 
-        lastActionId: Math.random() 
-    });
-    if (updatedItems.every(i => i.found)) setTimeout(() => playSound('win'), 500);
+  // --- DRAWING PAD LOGIC ---
+  useEffect(() => {
+    if (view === "drawing" && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      // Scale for high-res screens
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+      
+      // Clear and Redraw all lines from Firebase
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      roomData.drawingLines?.forEach(line => {
+        if (line.points.length < 2) return;
+        ctx.beginPath();
+        ctx.strokeStyle = line.color;
+        ctx.lineWidth = 5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        const firstPoint = line.points[0];
+        ctx.moveTo((firstPoint.x / 100) * canvas.width, (firstPoint.y / 100) * canvas.height);
+        line.points.forEach(p => ctx.lineTo((p.x / 100) * canvas.width, (p.y / 100) * canvas.height));
+        ctx.stroke();
+      });
+    }
+  }, [view, roomData.drawingLines]);
+
+  const handleDrawStart = (e) => {
+    isDrawing.current = true;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : e;
+    const x = ((touch.clientX - rect.left) / rect.width) * 100;
+    const y = ((touch.clientY - rect.top) / rect.height) * 100;
+    currentLine.current = [{ x, y }];
   };
 
-  const handleFlashlightMove = (e) => {
-    if (!roomDocRef || !user) return;
+  const handleDrawMove = (e) => {
+    if (!isDrawing.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
     const touch = e.touches ? e.touches[0] : e;
-    const x = (touch.clientX / window.innerWidth) * 100;
-    const y = (touch.clientY / window.innerHeight) * 100;
-    updateDoc(roomDocRef, { [`flashlight.${user.uid}`]: { x, y } });
+    const x = ((touch.clientX - rect.left) / rect.width) * 100;
+    const y = ((touch.clientY - rect.top) / rect.height) * 100;
+    currentLine.current.push({ x, y });
+
+    // Local draw for instant feedback
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.strokeStyle = currentColor;
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    const p1 = currentLine.current[currentLine.current.length - 2];
+    const p2 = currentLine.current[currentLine.current.length - 1];
+    ctx.beginPath();
+    ctx.moveTo((p1.x / 100) * canvasRef.current.width, (p1.y / 100) * canvasRef.current.height);
+    ctx.lineTo((p2.x / 100) * canvasRef.current.width, (p2.y / 100) * canvasRef.current.height);
+    ctx.stroke();
+  };
+
+  const handleDrawEnd = async () => {
+    if (!isDrawing.current) return;
+    isDrawing.current = false;
+    if (currentLine.current.length > 1) {
+      await updateDoc(roomDocRef, {
+        drawingLines: arrayUnion({ color: currentColor, points: currentLine.current })
+      });
+    }
+    currentLine.current = [];
   };
 
   const Header = () => (
@@ -123,29 +172,69 @@ export default function App() {
     </div>
   );
 
+  // --- VIEWS ---
   if (view === "lobby") return (
     <div className="h-screen flex flex-col items-center justify-center p-8 bg-white text-center">
       <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center shadow-2xl mb-8 animate-bounce">
         <Sparkles className="w-12 h-12 text-white" />
       </div>
       <h1 className="text-4xl font-black text-slate-800">SparklePlay</h1>
-      <button onClick={() => { playSound('click'); const id = Math.random().toString(36).substring(2, 7).toUpperCase(); window.history.pushState({}, "", `?room=${id}`); setRoomId(id); setView("menu"); }} className="mt-10 px-12 py-6 bg-indigo-600 text-white rounded-[2rem] font-bold text-2xl shadow-xl shadow-indigo-100 active:scale-95 transition-all">Start Playing</button>
+      <button onClick={() => { playSound('click'); const id = Math.random().toString(36).substring(2, 7).toUpperCase(); window.history.pushState({}, "", `?room=${id}`); setRoomId(id); setView("menu"); }} className="mt-10 px-12 py-6 bg-indigo-600 text-white rounded-[2rem] font-bold text-2xl shadow-xl active:scale-95 transition-all">Start Playing</button>
     </div>
   );
 
   if (view === "menu") return (
     <div className="h-screen bg-slate-50 flex flex-col">
       <Header />
-      <div className="flex-1 p-6 grid grid-cols-1 gap-6 items-center">
-        <button onClick={() => { playSound('click'); setView("flashlight"); }} className="bg-slate-900 text-white p-10 rounded-[3rem] flex flex-col items-center gap-4 active:scale-95 transition-all shadow-xl">
-          <Zap className="w-12 h-12 text-yellow-400" />
-          <span className="text-2xl font-black italic">Magic Flashlight</span>
+      <div className="flex-1 p-6 grid grid-cols-1 gap-4 overflow-y-auto">
+        <button onClick={() => { playSound('click'); setView("flashlight"); }} className="bg-slate-900 text-white p-8 rounded-[2.5rem] flex items-center justify-between shadow-xl">
+            <div className="flex flex-col items-start"><Zap className="text-yellow-400 mb-2" /><span className="text-xl font-black italic text-left">Flashlight Hide & Seek</span></div>
+            <ArrowRight />
         </button>
-        <button onClick={() => { playSound('click'); setView("story"); }} className="bg-white p-10 rounded-[3rem] shadow-xl flex flex-col items-center gap-4 active:scale-95 transition-all border-4 border-orange-50">
-          <BookOpen className="w-12 h-12 text-orange-500" />
-          <span className="text-2xl font-black">Story Time</span>
+        <button onClick={() => { playSound('click'); setView("drawing"); }} className="bg-white p-8 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-blue-50 text-left">
+            <div className="flex flex-col items-start"><Palette className="text-blue-500 mb-2" /><span className="text-xl font-black">Shared Drawing Pad</span></div>
+            <ArrowRight />
+        </button>
+        <button onClick={async () => { 
+            playSound('click'); 
+            await updateDoc(roomDocRef, { storyPage: 0, storyIdx: Math.floor(Math.random() * STORIES.length) });
+            setView("story"); 
+        }} className="bg-white p-8 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-orange-50 text-left">
+            <div className="flex flex-col items-start"><BookOpen className="text-orange-500 mb-2" /><span className="text-xl font-black">Story Time</span></div>
+            <ArrowRight />
         </button>
       </div>
+    </div>
+  );
+
+  if (view === "drawing") return (
+    <div className="h-screen bg-white flex flex-col touch-none">
+        <Header />
+        <div className="flex-1 relative bg-slate-50 overflow-hidden">
+            <canvas 
+              ref={canvasRef} 
+              className="w-full h-full cursor-crosshair" 
+              onMouseDown={handleDrawStart} 
+              onMouseMove={handleDrawMove} 
+              onMouseUp={handleDrawEnd}
+              onTouchStart={handleDrawStart}
+              onTouchMove={handleDrawMove}
+              onTouchEnd={handleDrawEnd}
+            />
+        </div>
+        <div className="p-6 bg-white border-t flex items-center justify-between gap-4">
+            <div className="flex gap-4">
+              {['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#4f46e5'].map(c => (
+                <button 
+                  key={c} 
+                  onClick={() => { playSound('click'); setCurrentColor(c); }} 
+                  className={`w-10 h-10 rounded-full shadow-md transition-transform ${currentColor === c ? 'scale-125 border-4 border-slate-200' : ''}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+            <button onClick={async () => { playSound('click'); await updateDoc(roomDocRef, { drawingLines: [] }); }} className="p-3 bg-red-50 text-red-500 rounded-2xl active:scale-90 transition-transform"><Eraser /></button>
+        </div>
     </div>
   );
 
@@ -191,7 +280,11 @@ export default function App() {
         </div>
         <div className="p-8 flex gap-6">
           <button disabled={pageIdx === 0} onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pageIdx - 1 }); }} className="flex-1 py-6 bg-white/60 rounded-3xl disabled:opacity-20"><ArrowLeft className="mx-auto w-10 h-10"/></button>
-          <button disabled={pageIdx === story.length - 1} onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pageIdx + 1 }); }} className="flex-1 py-6 bg-indigo-600 text-white rounded-3xl shadow-xl disabled:opacity-20"><ArrowRight className="mx-auto w-10 h-10"/></button>
+          {pageIdx === story.length - 1 ? (
+              <button onClick={() => { playSound('win'); setView('menu'); }} className="flex-1 py-6 bg-green-500 text-white rounded-3xl font-bold">RESTART</button>
+          ) : (
+              <button onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pageIdx + 1 }); }} className="flex-1 py-6 bg-indigo-600 text-white rounded-3xl shadow-xl disabled:opacity-20"><ArrowRight className="mx-auto w-10 h-10"/></button>
+          )}
         </div>
       </div>
     );
