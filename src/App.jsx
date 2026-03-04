@@ -30,30 +30,7 @@ import {
 } from "lucide-react";
 
 /**
- * Helper: read env vars in either Vite (import.meta.env)
- * or CRA/Next (process.env) without crashing builds.
- */
-function readEnv(key) {
-  // Vite
-  try {
-    if (typeof import.meta !== "undefined" && import.meta.env) {
-      const v = import.meta.env[key];
-      if (v !== undefined) return v;
-    }
-  } catch (_) {
-    // ignore
-  }
-  // CRA/Next
-  try {
-    if (typeof process !== "undefined" && process.env) {
-      const v = process.env[key];
-      if (v !== undefined) return v;
-    }
-  } catch (_) {
-    // ignore
-  }
-  return undefined;
-}
+
 
 /**
  * Firebase config from environment variables (recommended for Vercel).
