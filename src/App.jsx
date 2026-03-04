@@ -59,6 +59,7 @@ function readEnv(key) {
  * Firebase config from environment variables (recommended for Vercel).
  * Supports either VITE_* or REACT_APP_* style keys.
  */
+// ✅ CRA-only Firebase config (REACT_APP_* variables)
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -66,12 +67,13 @@ const firebaseConfig = {
   storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.REACT_APP_FIREBASE_APP_ID,
-};;
+};
 
 function assertFirebaseConfig(cfg) {
   const missing = Object.entries(cfg)
     .filter(([_, v]) => !v)
     .map(([k]) => k);
+
   if (missing.length) {
     console.error("Missing Firebase env vars:", missing);
     return false;
@@ -277,15 +279,15 @@ export default function App() {
             Add your Firebase environment variables in Vercel, then redeploy.
           </p>
           <div className="text-sm text-slate-700 bg-white rounded-2xl p-4 border border-slate-200">
-            <div className="font-bold mb-2">Expected env vars (Vite):</div>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>VITE_FIREBASE_API_KEY</li>
-              <li>VITE_FIREBASE_AUTH_DOMAIN</li>
-              <li>VITE_FIREBASE_PROJECT_ID</li>
-              <li>VITE_FIREBASE_STORAGE_BUCKET</li>
-              <li>VITE_FIREBASE_MESSAGING_SENDER_ID</li>
-              <li>VITE_FIREBASE_APP_ID</li>
-            </ul>
+            <div className="font-bold mb-2">Expected env vars (CRA):</div>
+<ul className="list-disc pl-5 space-y-1">
+  <li>REACT_APP_FIREBASE_API_KEY</li>
+  <li>REACT_APP_FIREBASE_AUTH_DOMAIN</li>
+  <li>REACT_APP_FIREBASE_PROJECT_ID</li>
+  <li>REACT_APP_FIREBASE_STORAGE_BUCKET</li>
+  <li>REACT_APP_FIREBASE_MESSAGING_SENDER_ID</li>
+  <li>REACT_APP_FIREBASE_APP_ID</li>
+</ul>
           </div>
         </div>
       </div>
