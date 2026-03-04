@@ -49,7 +49,7 @@ export default function App() {
   const [view, setView] = useState("lobby");
   const [roomData, setRoomData] = useState({ hiddenItems: [], storyPage: 0, storyIdx: 0, flashlight: {}, drawingLines: [] });
   const [copyFeedback, setCopyFeedback] = useState(false);
-  const [currentColor, setCurrentColor] = useState("#4f46e5"); // Indigo default
+  const [currentColor, setCurrentColor] = useState("#4f46e5");
   
   const canvasRef = useRef(null);
   const isDrawing = useRef(false);
@@ -92,16 +92,36 @@ export default function App() {
     });
   }, [user, roomDocRef, roomData.lastActionId, resetGame]);
 
+  // --- FLASH & ITEM ACTIONS (Now properly defined for all views) ---
+  const handleItemClick = async (itemId) => {
+    const updatedItems = roomData.hiddenItems.map(item => 
+      item.id === itemId ? { ...item, found: true } : item
+    );
+    playSound('pop');
+    await updateDoc(roomDocRef, { 
+        hiddenItems: updatedItems, 
+        lastAction: 'found', 
+        lastActionId: Math.random() 
+    });
+    if (updatedItems.every(i => i.found)) setTimeout(() => playSound('win'), 500);
+  };
+
+  const handleFlashlightMove = (e) => {
+    if (!roomDocRef || !user) return;
+    const touch = e.touches ? e.touches[0] : e;
+    const x = (touch.clientX / window.innerWidth) * 100;
+    const y = (touch.clientY / window.innerHeight) * 100;
+    updateDoc(roomDocRef, { [`flashlight.${user.uid}`]: { x, y } });
+  };
+
   // --- DRAWING PAD LOGIC ---
   useEffect(() => {
     if (view === "drawing" && canvasRef.current) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
-      // Scale for high-res screens
       canvas.width = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
       
-      // Clear and Redraw all lines from Firebase
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       roomData.drawingLines?.forEach(line => {
         if (line.points.length < 2) return;
@@ -135,7 +155,6 @@ export default function App() {
     const y = ((touch.clientY - rect.top) / rect.height) * 100;
     currentLine.current.push({ x, y });
 
-    // Local draw for instant feedback
     const ctx = canvasRef.current.getContext("2d");
     ctx.strokeStyle = currentColor;
     ctx.lineWidth = 5;
@@ -172,7 +191,6 @@ export default function App() {
     </div>
   );
 
-  // --- VIEWS ---
   if (view === "lobby") return (
     <div className="h-screen flex flex-col items-center justify-center p-8 bg-white text-center">
       <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center shadow-2xl mb-8 animate-bounce">
