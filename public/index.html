@@ -1,1 +1,37 @@
-
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="description" content="SparklePlay - Remote play for little ones" />
+    
+    <!-- We use the Tailwind CDN for quick styling in this prototype -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <title>SparklePlay</title>
+    
+    <style>
+      /* Ensure the app always fills the screen on mobile devices */
+      body, html, #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      
+      /* Smooth transitions for the background colors */
+      .transition-colors {
+        transition-property: background-color, border-color, color, fill, stroke;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        transition-duration: 700ms;
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <!-- This is where React will inject your SparklePlay app -->
+    <div id="root"></div>
+  </body>
+</html>
