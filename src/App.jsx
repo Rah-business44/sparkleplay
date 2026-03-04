@@ -73,12 +73,7 @@ function assertFirebaseConfig(cfg) {
     .filter(([_, v]) => !v)
     .map(([k]) => k);
   if (missing.length) {
-    // Don’t hard-crash the whole app; show a helpful message in UI.
-    console.error(
-      "Missing Firebase env vars:",
-      missing,
-      "— add these in Vercel Project Settings → Environment Variables."
-    );
+    console.error("Missing Firebase env vars:", missing);
     return false;
   }
   return true;
