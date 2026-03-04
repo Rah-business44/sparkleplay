@@ -1,17 +1,17 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy, Video } from "lucide-react";
+import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy } from "lucide-react";
 
-// --- CONFIG ---
+// --- CONFIG (Using your REACT_APP style) ---
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
 };
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
@@ -52,27 +52,9 @@ export default function App() {
 
   const roomDocRef = useMemo(() => (roomId ? doc(db, "rooms", roomId) : null), [roomId]);
 
-  useEffect(() => {
-    signInAnonymously(auth).then(() => onAuthStateChanged(auth, u => setUser(u)));
-    const rId = new URLSearchParams(window.location.search).get("room");
-    if (rId) { setRoomId(rId); setView("menu"); }
-  }, []);
-
-  useEffect(() => {
-    if (!user || !roomDocRef) return;
-    return onSnapshot(roomDocRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        // Play sound if someone else found an item
-        if (data.lastAction === 'found' && data.lastActionId !== roomData.lastActionId) playSound('pop');
-        setRoomData(data);
-      } else {
-        resetGame();
-      }
-    });
-  }, [user, roomDocRef, roomData.lastActionId]);
-
-  const resetGame = async () => {
+  // RESET GAME (Wrapped in useCallback to fix the Vercel error)
+  const resetGame = useCallback(async () => {
+    if (!roomDocRef) return;
     const items = [
       { id: 'item1', type: 'ghost', x: Math.random() * 70 + 15, y: Math.random() * 60 + 20, found: false },
       { id: 'item2', type: 'star', x: Math.random() * 70 + 15, y: Math.random() * 60 + 20, found: false },
@@ -84,7 +66,28 @@ export default function App() {
       storyIdx: Math.floor(Math.random() * STORIES.length), 
       flashlight: {} 
     });
-  };
+  }, [roomDocRef]);
+
+  useEffect(() => {
+    signInAnonymously(auth).then(() => onAuthStateChanged(auth, u => setUser(u)));
+    const rId = new URLSearchParams(window.location.search).get("room");
+    if (rId) { setRoomId(rId); setView("menu"); }
+  }, []);
+
+  useEffect(() => {
+    if (!user || !roomDocRef) return;
+    return onSnapshot(roomDocRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.lastAction === 'found' && data.lastActionId !== roomData.lastActionId) {
+            playSound('pop');
+        }
+        setRoomData(data);
+      } else {
+        resetGame();
+      }
+    });
+  }, [user, roomDocRef, roomData.lastActionId, resetGame]);
 
   const handleItemClick = async (itemId) => {
     const updatedItems = roomData.hiddenItems.map(item => 
@@ -110,14 +113,16 @@ export default function App() {
   const Header = () => (
     <div className="flex items-center justify-between p-4 bg-white border-b sticky top-0 z-50">
       <button onClick={() => { playSound('click'); setView('menu'); }} className="p-2 rounded-xl bg-slate-100"><Home /></button>
-      <h1 className="font-black text-indigo-600">SparklePlay</h1>
+      <div className="flex flex-col items-center">
+        <h1 className="text-lg font-black text-indigo-600 leading-tight">SparklePlay</h1>
+        <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">Room: {roomId ?? "—"}</span>
+      </div>
       <button onClick={() => { navigator.clipboard.writeText(window.location.href); setCopyFeedback(true); setTimeout(()=>setCopyFeedback(false), 2000)}} className="p-2 rounded-xl bg-indigo-50">
-        {copyFeedback ? <Check className="text-green-600" /> : <Share />}
+        {copyFeedback ? <Check className="text-green-600" /> : <Share className="w-6 h-6 text-indigo-600" />}
       </button>
     </div>
   );
 
-  // --- VIEWS ---
   if (view === "lobby") return (
     <div className="h-screen flex flex-col items-center justify-center p-8 bg-white text-center">
       <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center shadow-2xl mb-8 animate-bounce">
@@ -146,7 +151,7 @@ export default function App() {
 
   if (view === "flashlight") {
     const lights = Object.values(roomData.flashlight || {});
-    const allFound = roomData.hiddenItems?.every(i => i.found);
+    const allFound = roomData.hiddenItems?.length > 0 && roomData.hiddenItems?.every(i => i.found);
     const maskStyle = {
       background: allFound ? 'transparent' : `radial-gradient(circle at ${lights.map(l => `${l.x}% ${l.y}%`).join(', ')}, transparent 80px, rgba(15, 23, 42, 0.98) 160px)`
     };
@@ -163,9 +168,9 @@ export default function App() {
         ))}
         <div className="absolute inset-0 pointer-events-none transition-all duration-1000" style={maskStyle}></div>
         {allFound && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/30 backdrop-blur-sm animate-in zoom-in duration-500">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/30 backdrop-blur-sm">
             <Trophy className="w-40 h-40 text-yellow-400 mb-4 animate-bounce" />
-            <h2 className="text-5xl font-black text-white italic drop-shadow-lg">YOU DID IT!</h2>
+            <h2 className="text-5xl font-black text-white italic drop-shadow-lg text-center">YOU DID IT!</h2>
             <button onClick={() => { playSound('click'); resetGame(); }} className="mt-10 px-10 py-5 bg-white text-indigo-600 rounded-[2rem] font-black text-xl shadow-2xl">Play Again?</button>
           </div>
         )}
@@ -181,7 +186,7 @@ export default function App() {
       <div className={`h-screen flex flex-col transition-colors duration-700 ${page.color}`}>
         <Header />
         <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-          <div className="text-[12rem] mb-4 animate-in slide-in-from-bottom duration-500">{page.emoji}</div>
+          <div className="text-[12rem] mb-4">{page.emoji}</div>
           <h2 className="text-4xl font-black text-slate-800 leading-tight">{page.text}</h2>
         </div>
         <div className="p-8 flex gap-6">
