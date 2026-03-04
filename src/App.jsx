@@ -60,18 +60,13 @@ function readEnv(key) {
  * Supports either VITE_* or REACT_APP_* style keys.
  */
 const firebaseConfig = {
-  apiKey: readEnv("VITE_FIREBASE_API_KEY") ?? readEnv("REACT_APP_FIREBASE_API_KEY"),
-  authDomain:
-    readEnv("VITE_FIREBASE_AUTH_DOMAIN") ?? readEnv("REACT_APP_FIREBASE_AUTH_DOMAIN"),
-  projectId:
-    readEnv("VITE_FIREBASE_PROJECT_ID") ?? readEnv("REACT_APP_FIREBASE_PROJECT_ID"),
-  storageBucket:
-    readEnv("VITE_FIREBASE_STORAGE_BUCKET") ?? readEnv("REACT_APP_FIREBASE_STORAGE_BUCKET"),
-  messagingSenderId:
-    readEnv("VITE_FIREBASE_MESSAGING_SENDER_ID") ??
-    readEnv("REACT_APP_FIREBASE_MESSAGING_SENDER_ID"),
-  appId: readEnv("VITE_FIREBASE_APP_ID") ?? readEnv("REACT_APP_FIREBASE_APP_ID"),
-};
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+};;
 
 function assertFirebaseConfig(cfg) {
   const missing = Object.entries(cfg)
