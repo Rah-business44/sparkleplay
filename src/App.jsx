@@ -3,8 +3,8 @@ import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { 
-  Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, 
-  Share, Check, Home, Zap, Trophy, Palette, Eraser, X, Circle, PlayCircle
+  Ghost, BookOpen, ArrowLeft, ArrowRight, Sparkles, 
+  Share, Check, Home, Zap, Trophy, Palette, Eraser, X, Circle
 } from "lucide-react";
 
 // --- CONFIG ---
