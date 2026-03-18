@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy, Palette, Eraser, MousePointer2, drip as Drip, X, Circle } from "lucide-react";
+import { 
+  Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, 
+  Share, Check, Home, Zap, Trophy, Palette, Eraser, X, Circle, PlayCircle
+} from "lucide-react";
 
 // --- CONFIG ---
 const firebaseConfig = {
@@ -53,10 +56,10 @@ export default function App() {
   const [roomData, setRoomData] = useState({ 
     drawingLines: [], 
     storyPage: 0, 
-    storyIdx: 0, 
-    hideSpots: [], 
-    racePositions: {},
-    tictactoe: { board: Array(9).fill(null), xIsNext: true, winner: null }
+    storyIdx: 0,
+    hideReveal: { hideSpots: [], targetAnimal: "🐻", gameWon: false },
+    raceTap: { racePositions: {}, winner: null },
+    tictactoe: { board: Array(9).fill(null), turn: 'X', winner: null }
   });
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [currentColor, setCurrentColor] = useState("#4f46e5");
@@ -64,8 +67,8 @@ export default function App() {
   const canvasRef = useRef(null);
   const isDrawing = useRef(false);
   const currentLine = useRef([]);
-  const raceInterval = useRef(null);
   const localTapCount = useRef(0);
+  const raceInterval = useRef(null);
 
   const roomDocRef = useMemo(() => (roomId ? doc(db, "rooms", roomId) : null), [roomId]);
 
@@ -92,8 +95,7 @@ export default function App() {
       },
       raceTap: {
         racePositions: {},
-        winner: null,
-        active: false
+        winner: null
       },
       tictactoe: {
         board: Array(9).fill(null),
@@ -114,22 +116,20 @@ export default function App() {
     if (!user || !roomDocRef) return;
     return onSnapshot(roomDocRef, (snap) => {
       if (snap.exists()) {
-        const data = snap.data();
-        setRoomData(data);
+        setRoomData(snap.data());
       } else {
         resetGame();
       }
     });
   }, [user, roomDocRef, resetGame]);
 
-  // --- DRAWING PAD LOGIC ---
+  // --- DRAWING PAD ---
   useEffect(() => {
     if (view === "drawing" && canvasRef.current) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
       canvas.width = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
-      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       roomData.drawingLines?.forEach(line => {
         if (line.points.length < 2) return;
@@ -138,8 +138,7 @@ export default function App() {
         ctx.lineWidth = 5;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        const firstPoint = line.points[0];
-        ctx.moveTo((firstPoint.x / 100) * canvas.width, (firstPoint.y / 100) * canvas.height);
+        ctx.moveTo((line.points[0].x / 100) * canvas.width, (line.points[0].y / 100) * canvas.height);
         line.points.forEach(p => ctx.lineTo((p.x / 100) * canvas.width, (p.y / 100) * canvas.height));
         ctx.stroke();
       });
@@ -162,7 +161,6 @@ export default function App() {
     const x = ((touch.clientX - rect.left) / rect.width) * 100;
     const y = ((touch.clientY - rect.top) / rect.height) * 100;
     currentLine.current.push({ x, y });
-
     const ctx = canvasRef.current.getContext("2d");
     ctx.strokeStyle = currentColor;
     ctx.lineWidth = 5;
@@ -179,36 +177,27 @@ export default function App() {
     if (!isDrawing.current) return;
     isDrawing.current = false;
     if (currentLine.current.length > 1) {
-      await updateDoc(roomDocRef, {
-        drawingLines: arrayUnion({ color: currentColor, points: currentLine.current })
-      });
+      await updateDoc(roomDocRef, { drawingLines: arrayUnion({ color: currentColor, points: currentLine.current }) });
     }
     currentLine.current = [];
   };
 
-  // --- PEEKABOO LOGIC ---
+  // --- PEEKABOO ---
   const handlePeekClick = async (spotId) => {
-    if (!roomData.hideReveal || roomData.hideReveal.gameWon) return;
+    if (roomData.hideReveal?.gameWon) return;
     const spot = roomData.hideReveal.hideSpots.find(s => s.id === spotId);
     if (spot.revealed) return;
-
-    const newSpots = roomData.hideReveal.hideSpots.map(s => 
-      s.id === spotId ? { ...s, revealed: true } : s
-    );
-
+    const newSpots = roomData.hideReveal.hideSpots.map(s => s.id === spotId ? { ...s, revealed: true } : s);
     if (spot.hasAnimal) {
       playSound('win');
-      await updateDoc(roomDocRef, { 
-        "hideReveal.hideSpots": newSpots,
-        "hideReveal.gameWon": true 
-      });
+      await updateDoc(roomDocRef, { "hideReveal.hideSpots": newSpots, "hideReveal.gameWon": true });
     } else {
       playSound('click');
       await updateDoc(roomDocRef, { "hideReveal.hideSpots": newSpots });
     }
   };
 
-  // --- RACE TAP LOGIC ---
+  // --- RACE TAP ---
   useEffect(() => {
     if (view === "raceTap" && !roomData.raceTap?.winner) {
       raceInterval.current = setInterval(async () => {
@@ -216,12 +205,8 @@ export default function App() {
           const currentPos = roomData.raceTap.racePositions[user.uid] || 0;
           const newPos = currentPos + localTapCount.current;
           localTapCount.current = 0;
-          
           const updates = { [`raceTap.racePositions.${user.uid}`]: newPos };
-          if (newPos >= 100) {
-            updates["raceTap.winner"] = user.uid;
-            playSound('win');
-          }
+          if (newPos >= 100) { updates["raceTap.winner"] = user.uid; playSound('win'); }
           await updateDoc(roomDocRef, updates);
         }
       }, 150);
@@ -235,33 +220,24 @@ export default function App() {
     playSound('pop');
   };
 
-  // --- TIC TAC TOE LOGIC ---
+  // --- TIC TAC TOE ---
   const handleTTTClick = async (i) => {
     const ttt = roomData.tictactoe;
     if (ttt.winner || ttt.board[i]) return;
-
     const newBoard = [...ttt.board];
     newBoard[i] = ttt.turn;
-    
-    const calculateWinner = (squares) => {
+    const calculateWinner = (sq) => {
       const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
       for (let l of lines) {
         const [a, b, c] = l;
-        if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) return squares[a];
+        if (sq[a] && sq[a] === sq[b] && sq[a] === sq[c]) return sq[a];
       }
-      return squares.every(s => s) ? 'Draw' : null;
+      return sq.every(s => s) ? 'Draw' : null;
     };
-
-    const winner = calculateWinner(newBoard);
+    const win = calculateWinner(newBoard);
     playSound('boom');
-    
-    await updateDoc(roomDocRef, {
-      "tictactoe.board": newBoard,
-      "tictactoe.turn": ttt.turn === 'X' ? 'O' : 'X',
-      "tictactoe.winner": winner,
-      "tictactoe.lastMove": i
-    });
-    if (winner && winner !== 'Draw') playSound('win');
+    await updateDoc(roomDocRef, { "tictactoe.board": newBoard, "tictactoe.turn": ttt.turn === 'X' ? 'O' : 'X', "tictactoe.winner": win, "tictactoe.lastMove": i });
+    if (win && win !== 'Draw') playSound('win');
   };
 
   const Header = () => (
@@ -303,7 +279,7 @@ export default function App() {
             <div className="flex flex-col items-start"><Sparkles className="mb-1" /><span className="text-xl font-black italic">Tic Tac Toe</span></div>
             <ArrowRight />
         </button>
-        <button onClick={() => { playSound('click'); setView("drawing"); }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-blue-50">
+        <button onClick={() => { playSound('click'); setView("drawing"); }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-blue-50 text-left">
             <div className="flex flex-col items-start"><Palette className="text-blue-500 mb-1" /><span className="text-xl font-black">Shared Drawing Pad</span></div>
             <ArrowRight />
         </button>
@@ -311,7 +287,7 @@ export default function App() {
             playSound('click'); 
             await updateDoc(roomDocRef, { storyPage: 0, storyIdx: Math.floor(Math.random() * STORIES.length) });
             setView("story"); 
-        }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-orange-50">
+        }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-orange-50 text-left">
             <div className="flex flex-col items-start"><BookOpen className="text-orange-500 mb-1" /><span className="text-xl font-black">Story Time</span></div>
             <ArrowRight />
         </button>
@@ -328,18 +304,14 @@ export default function App() {
           <h2 className="text-3xl font-black text-orange-600 mb-8">Find the {game?.targetAnimal}!</h2>
           <div className="grid grid-cols-2 gap-6 w-full max-w-sm">
             {game?.hideSpots.map((spot) => (
-              <button
-                key={spot.id}
-                onClick={() => handlePeekClick(spot.id)}
-                className={`aspect-square rounded-[2rem] text-6xl flex items-center justify-center shadow-xl transition-all duration-500 transform ${spot.revealed ? 'bg-white scale-100 rotate-0' : 'bg-orange-400 scale-105 rotate-3 active:scale-90'}`}
-              >
+              <button key={spot.id} onClick={() => handlePeekClick(spot.id)} className={`aspect-square rounded-[2rem] text-6xl flex items-center justify-center shadow-xl transition-all duration-500 transform ${spot.revealed ? 'bg-white scale-100 rotate-0' : 'bg-orange-400 scale-105 rotate-3 active:scale-90'}`}>
                 {spot.revealed ? (spot.hasAnimal ? game.targetAnimal : "💨") : "❓"}
               </button>
             ))}
           </div>
         </div>
         {game?.gameWon && (
-          <div className="absolute inset-0 z-[100] bg-orange-500 flex flex-col items-center justify-center animate-in fade-in duration-500">
+          <div className="absolute inset-0 z-[100] bg-orange-500 flex flex-col items-center justify-center animate-pulse">
             <div className="text-[12rem] animate-bounce">{game.targetAnimal}</div>
             <h2 className="text-6xl font-black text-white mb-8">FOUND IT!</h2>
             <button onClick={resetGame} className="px-12 py-6 bg-white text-orange-600 rounded-[2rem] font-black text-2xl shadow-2xl">Play Again</button>
@@ -361,12 +333,7 @@ export default function App() {
             const pos = race?.racePositions[uid] || 0;
             return (
               <div key={i} className="relative w-full h-24 bg-white/50 rounded-full border-4 border-green-200 overflow-hidden">
-                <div 
-                  className="absolute top-0 left-0 h-full flex items-center text-6xl transition-all duration-300"
-                  style={{ left: `${Math.min(pos, 90)}%` }}
-                >
-                  {emoji}
-                </div>
+                <div className="absolute top-0 left-0 h-full flex items-center text-6xl transition-all duration-300" style={{ left: `${Math.min(pos, 90)}%` }}>{emoji}</div>
                 {pos >= 100 && <Trophy className="absolute right-4 top-6 text-yellow-500 w-12 h-12" />}
               </div>
             );
@@ -390,24 +357,16 @@ export default function App() {
       <div className="h-screen bg-purple-50 flex flex-col">
         <Header />
         <div className="flex-1 flex flex-col items-center justify-center p-4">
-          <div className="mb-6 text-2xl font-black text-purple-600">
-            {ttt.winner ? (ttt.winner === 'Draw' ? "It's a Draw!" : `${ttt.winner} Wins!`) : `Player ${ttt.turn}'s Turn`}
-          </div>
+          <div className="mb-6 text-2xl font-black text-purple-600">{ttt.winner ? (ttt.winner === 'Draw' ? "It's a Draw!" : `${ttt.winner} Wins!`) : `Player ${ttt.turn}'s Turn`}</div>
           <div className="grid grid-cols-3 gap-3 w-full max-w-sm aspect-square bg-purple-200 p-3 rounded-[2.5rem] shadow-2xl">
             {ttt.board.map((cell, i) => (
-              <button
-                key={i}
-                onClick={() => handleTTTClick(i)}
-                className={`bg-white rounded-2xl flex items-center justify-center text-6xl shadow-sm transition-all duration-300 ${ttt.lastMove === i ? 'animate-ping' : ''}`}
-              >
+              <button key={i} onClick={() => handleTTTClick(i)} className={`bg-white rounded-2xl flex items-center justify-center text-6xl shadow-sm transition-all duration-300 ${ttt.lastMove === i ? 'animate-bounce' : ''}`}>
                 {cell === 'X' && <X className="w-16 h-16 text-red-500 stroke-[4]" />}
                 {cell === 'O' && <Circle className="w-16 h-16 text-blue-500 stroke-[4]" />}
               </button>
             ))}
           </div>
-          {ttt.winner && (
-            <button onClick={resetGame} className="mt-10 px-10 py-5 bg-purple-600 text-white rounded-[2rem] font-black text-xl shadow-xl">New Game</button>
-          )}
+          {ttt.winner && <button onClick={resetGame} className="mt-10 px-10 py-5 bg-purple-600 text-white rounded-[2rem] font-black text-xl shadow-xl">New Game</button>}
         </div>
       </div>
     );
@@ -417,26 +376,12 @@ export default function App() {
     <div className="h-screen bg-white flex flex-col touch-none">
         <Header />
         <div className="flex-1 relative bg-slate-50 overflow-hidden">
-            <canvas 
-              ref={canvasRef} 
-              className="w-full h-full cursor-crosshair" 
-              onMouseDown={handleDrawStart} 
-              onMouseMove={handleDrawMove} 
-              onMouseUp={handleDrawEnd}
-              onTouchStart={handleDrawStart}
-              onTouchMove={handleDrawMove}
-              onTouchEnd={handleDrawEnd}
-            />
+            <canvas ref={canvasRef} className="w-full h-full cursor-crosshair" onMouseDown={handleDrawStart} onMouseMove={handleDrawMove} onMouseUp={handleDrawEnd} onTouchStart={handleDrawStart} onTouchMove={handleDrawMove} onTouchEnd={handleDrawEnd} />
         </div>
         <div className="p-6 bg-white border-t flex items-center justify-between gap-4">
             <div className="flex gap-4">
               {['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#4f46e5'].map(c => (
-                <button 
-                  key={c} 
-                  onClick={() => { playSound('click'); setCurrentColor(c); }} 
-                  className={`w-10 h-10 rounded-full shadow-md transition-transform ${currentColor === c ? 'scale-125 border-4 border-slate-200' : ''}`}
-                  style={{ backgroundColor: c }}
-                />
+                <button key={c} onClick={() => { playSound('click'); setCurrentColor(c); }} className={`w-10 h-10 rounded-full shadow-md transition-transform ${currentColor === c ? 'scale-125 border-4 border-slate-200' : ''}`} style={{ backgroundColor: c }} />
               ))}
             </div>
             <button onClick={async () => { playSound('click'); await updateDoc(roomDocRef, { drawingLines: [] }); }} className="p-3 bg-red-50 text-red-500 rounded-2xl active:scale-90 transition-transform"><Eraser /></button>
@@ -446,8 +391,8 @@ export default function App() {
 
   if (view === "story") {
     const story = STORIES[roomData.storyIdx || 0];
-    const pageIdx = roomData.storyPage || 0;
-    const page = story[pageIdx];
+    const pIdx = roomData.storyPage || 0;
+    const page = story[pIdx];
     return (
       <div className={`h-screen flex flex-col transition-colors duration-700 ${page.color}`}>
         <Header />
@@ -456,11 +401,11 @@ export default function App() {
           <h2 className="text-4xl font-black text-slate-800 leading-tight">{page.text}</h2>
         </div>
         <div className="p-8 flex gap-6">
-          <button disabled={pageIdx === 0} onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pageIdx - 1 }); }} className="flex-1 py-6 bg-white/60 rounded-3xl disabled:opacity-20"><ArrowLeft className="mx-auto w-10 h-10"/></button>
-          {pageIdx === story.length - 1 ? (
+          <button disabled={pIdx === 0} onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pIdx - 1 }); }} className="flex-1 py-6 bg-white/60 rounded-3xl disabled:opacity-20"><ArrowLeft className="mx-auto w-10 h-10"/></button>
+          {pIdx === story.length - 1 ? (
               <button onClick={() => { playSound('win'); setView('menu'); }} className="flex-1 py-6 bg-green-500 text-white rounded-3xl font-bold">RESTART</button>
           ) : (
-              <button onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pageIdx + 1 }); }} className="flex-1 py-6 bg-indigo-600 text-white rounded-3xl shadow-xl disabled:opacity-20"><ArrowRight className="mx-auto w-10 h-10"/></button>
+              <button onClick={() => { playSound('click'); updateDoc(roomDocRef, { storyPage: pIdx + 1 }); }} className="flex-1 py-6 bg-indigo-600 text-white rounded-3xl shadow-xl disabled:opacity-20"><ArrowRight className="mx-auto w-10 h-10"/></button>
           )}
         </div>
       </div>
