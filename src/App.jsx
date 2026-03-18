@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy, Palette, Eraser } from "lucide-react";
+import { Ghost, Star, Heart, BookOpen, ArrowLeft, ArrowRight, Sparkles, Share, Check, Home, Zap, Trophy, Palette, Eraser, MousePointer2, drip as Drip, X, Circle } from "lucide-react";
 
 // --- CONFIG ---
 const firebaseConfig = {
@@ -23,7 +23,8 @@ const playSound = (type) => {
   const sounds = {
     pop: "https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3",
     win: "https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3",
-    click: "https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3"
+    click: "https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3",
+    boom: "https://assets.mixkit.co/active_storage/sfx/1690/1690-preview.mp3"
   };
   const audio = new Audio(sounds[type]);
   audio.volume = 0.4;
@@ -43,33 +44,63 @@ const STORIES = [
   ]
 ];
 
+const ANIMALS = ["🐻", "🦁", "🐘", "🦒", "🐼", "🦊"];
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [roomId, setRoomId] = useState(null);
   const [view, setView] = useState("lobby");
-  const [roomData, setRoomData] = useState({ hiddenItems: [], storyPage: 0, storyIdx: 0, flashlight: {}, drawingLines: [] });
+  const [roomData, setRoomData] = useState({ 
+    drawingLines: [], 
+    storyPage: 0, 
+    storyIdx: 0, 
+    hideSpots: [], 
+    racePositions: {},
+    tictactoe: { board: Array(9).fill(null), xIsNext: true, winner: null }
+  });
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [currentColor, setCurrentColor] = useState("#4f46e5");
   
   const canvasRef = useRef(null);
   const isDrawing = useRef(false);
   const currentLine = useRef([]);
+  const raceInterval = useRef(null);
+  const localTapCount = useRef(0);
 
   const roomDocRef = useMemo(() => (roomId ? doc(db, "rooms", roomId) : null), [roomId]);
 
   const resetGame = useCallback(async () => {
     if (!roomDocRef) return;
-    const items = [
-      { id: 'item1', type: 'ghost', x: Math.random() * 70 + 15, y: Math.random() * 60 + 20, found: false },
-      { id: 'item2', type: 'star', x: Math.random() * 70 + 15, y: Math.random() * 60 + 20, found: false },
-      { id: 'item3', type: 'heart', x: Math.random() * 70 + 15, y: Math.random() * 60 + 20, found: false }
-    ];
+    
+    // Peekaboo Setup
+    const target = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+    const spots = Array(6).fill(null).map((_, i) => ({
+      id: i,
+      hasAnimal: false,
+      revealed: false
+    }));
+    spots[Math.floor(Math.random() * 6)].hasAnimal = true;
+
     await setDoc(roomDocRef, { 
-      hiddenItems: items, 
       storyPage: 0, 
       storyIdx: Math.floor(Math.random() * STORIES.length), 
-      flashlight: {},
-      drawingLines: [] 
+      drawingLines: [],
+      hideReveal: {
+        hideSpots: spots,
+        targetAnimal: target,
+        gameWon: false
+      },
+      raceTap: {
+        racePositions: {},
+        winner: null,
+        active: false
+      },
+      tictactoe: {
+        board: Array(9).fill(null),
+        turn: 'X',
+        winner: null,
+        lastMove: null
+      }
     });
   }, [roomDocRef]);
 
@@ -84,35 +115,12 @@ export default function App() {
     return onSnapshot(roomDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.lastAction === 'found' && data.lastActionId !== roomData.lastActionId) playSound('pop');
         setRoomData(data);
       } else {
         resetGame();
       }
     });
-  }, [user, roomDocRef, roomData.lastActionId, resetGame]);
-
-  // --- FLASH & ITEM ACTIONS (Now properly defined for all views) ---
-  const handleItemClick = async (itemId) => {
-    const updatedItems = roomData.hiddenItems.map(item => 
-      item.id === itemId ? { ...item, found: true } : item
-    );
-    playSound('pop');
-    await updateDoc(roomDocRef, { 
-        hiddenItems: updatedItems, 
-        lastAction: 'found', 
-        lastActionId: Math.random() 
-    });
-    if (updatedItems.every(i => i.found)) setTimeout(() => playSound('win'), 500);
-  };
-
-  const handleFlashlightMove = (e) => {
-    if (!roomDocRef || !user) return;
-    const touch = e.touches ? e.touches[0] : e;
-    const x = (touch.clientX / window.innerWidth) * 100;
-    const y = (touch.clientY / window.innerHeight) * 100;
-    updateDoc(roomDocRef, { [`flashlight.${user.uid}`]: { x, y } });
-  };
+  }, [user, roomDocRef, resetGame]);
 
   // --- DRAWING PAD LOGIC ---
   useEffect(() => {
@@ -178,6 +186,84 @@ export default function App() {
     currentLine.current = [];
   };
 
+  // --- PEEKABOO LOGIC ---
+  const handlePeekClick = async (spotId) => {
+    if (!roomData.hideReveal || roomData.hideReveal.gameWon) return;
+    const spot = roomData.hideReveal.hideSpots.find(s => s.id === spotId);
+    if (spot.revealed) return;
+
+    const newSpots = roomData.hideReveal.hideSpots.map(s => 
+      s.id === spotId ? { ...s, revealed: true } : s
+    );
+
+    if (spot.hasAnimal) {
+      playSound('win');
+      await updateDoc(roomDocRef, { 
+        "hideReveal.hideSpots": newSpots,
+        "hideReveal.gameWon": true 
+      });
+    } else {
+      playSound('click');
+      await updateDoc(roomDocRef, { "hideReveal.hideSpots": newSpots });
+    }
+  };
+
+  // --- RACE TAP LOGIC ---
+  useEffect(() => {
+    if (view === "raceTap" && !roomData.raceTap?.winner) {
+      raceInterval.current = setInterval(async () => {
+        if (localTapCount.current > 0) {
+          const currentPos = roomData.raceTap.racePositions[user.uid] || 0;
+          const newPos = currentPos + localTapCount.current;
+          localTapCount.current = 0;
+          
+          const updates = { [`raceTap.racePositions.${user.uid}`]: newPos };
+          if (newPos >= 100) {
+            updates["raceTap.winner"] = user.uid;
+            playSound('win');
+          }
+          await updateDoc(roomDocRef, updates);
+        }
+      }, 150);
+    }
+    return () => clearInterval(raceInterval.current);
+  }, [view, roomData.raceTap, user, roomDocRef]);
+
+  const handleRaceTap = () => {
+    if (roomData.raceTap?.winner) return;
+    localTapCount.current += 2;
+    playSound('pop');
+  };
+
+  // --- TIC TAC TOE LOGIC ---
+  const handleTTTClick = async (i) => {
+    const ttt = roomData.tictactoe;
+    if (ttt.winner || ttt.board[i]) return;
+
+    const newBoard = [...ttt.board];
+    newBoard[i] = ttt.turn;
+    
+    const calculateWinner = (squares) => {
+      const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+      for (let l of lines) {
+        const [a, b, c] = l;
+        if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) return squares[a];
+      }
+      return squares.every(s => s) ? 'Draw' : null;
+    };
+
+    const winner = calculateWinner(newBoard);
+    playSound('boom');
+    
+    await updateDoc(roomDocRef, {
+      "tictactoe.board": newBoard,
+      "tictactoe.turn": ttt.turn === 'X' ? 'O' : 'X',
+      "tictactoe.winner": winner,
+      "tictactoe.lastMove": i
+    });
+    if (winner && winner !== 'Draw') playSound('win');
+  };
+
   const Header = () => (
     <div className="flex items-center justify-between p-4 bg-white border-b sticky top-0 z-50">
       <button onClick={() => { playSound('click'); setView('menu'); }} className="p-2 rounded-xl bg-slate-100"><Home /></button>
@@ -205,25 +291,127 @@ export default function App() {
     <div className="h-screen bg-slate-50 flex flex-col">
       <Header />
       <div className="flex-1 p-6 grid grid-cols-1 gap-4 overflow-y-auto">
-        <button onClick={() => { playSound('click'); setView("flashlight"); }} className="bg-slate-900 text-white p-8 rounded-[2.5rem] flex items-center justify-between shadow-xl">
-            <div className="flex flex-col items-start"><Zap className="text-yellow-400 mb-2" /><span className="text-xl font-black italic text-left">Flashlight Hide & Seek</span></div>
+        <button onClick={() => { playSound('click'); setView("hideReveal"); }} className="bg-orange-400 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl">
+            <div className="flex flex-col items-start"><Ghost className="mb-1" /><span className="text-xl font-black italic">Peekaboo Game</span></div>
             <ArrowRight />
         </button>
-        <button onClick={() => { playSound('click'); setView("drawing"); }} className="bg-white p-8 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-blue-50 text-left">
-            <div className="flex flex-col items-start"><Palette className="text-blue-500 mb-2" /><span className="text-xl font-black">Shared Drawing Pad</span></div>
+        <button onClick={() => { playSound('click'); setView("raceTap"); }} className="bg-green-500 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl">
+            <div className="flex flex-col items-start"><Zap className="mb-1" /><span className="text-xl font-black italic">Race Tap</span></div>
+            <ArrowRight />
+        </button>
+        <button onClick={() => { playSound('click'); setView("tictactoe"); }} className="bg-purple-600 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl">
+            <div className="flex flex-col items-start"><Sparkles className="mb-1" /><span className="text-xl font-black italic">Tic Tac Toe</span></div>
+            <ArrowRight />
+        </button>
+        <button onClick={() => { playSound('click'); setView("drawing"); }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-blue-50">
+            <div className="flex flex-col items-start"><Palette className="text-blue-500 mb-1" /><span className="text-xl font-black">Shared Drawing Pad</span></div>
             <ArrowRight />
         </button>
         <button onClick={async () => { 
             playSound('click'); 
             await updateDoc(roomDocRef, { storyPage: 0, storyIdx: Math.floor(Math.random() * STORIES.length) });
             setView("story"); 
-        }} className="bg-white p-8 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-orange-50 text-left">
-            <div className="flex flex-col items-start"><BookOpen className="text-orange-500 mb-2" /><span className="text-xl font-black">Story Time</span></div>
+        }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-orange-50">
+            <div className="flex flex-col items-start"><BookOpen className="text-orange-500 mb-1" /><span className="text-xl font-black">Story Time</span></div>
             <ArrowRight />
         </button>
       </div>
     </div>
   );
+
+  if (view === "hideReveal") {
+    const game = roomData.hideReveal;
+    return (
+      <div className="h-screen bg-orange-50 flex flex-col">
+        <Header />
+        <div className="flex-1 p-6 flex flex-col items-center justify-center">
+          <h2 className="text-3xl font-black text-orange-600 mb-8">Find the {game?.targetAnimal}!</h2>
+          <div className="grid grid-cols-2 gap-6 w-full max-w-sm">
+            {game?.hideSpots.map((spot) => (
+              <button
+                key={spot.id}
+                onClick={() => handlePeekClick(spot.id)}
+                className={`aspect-square rounded-[2rem] text-6xl flex items-center justify-center shadow-xl transition-all duration-500 transform ${spot.revealed ? 'bg-white scale-100 rotate-0' : 'bg-orange-400 scale-105 rotate-3 active:scale-90'}`}
+              >
+                {spot.revealed ? (spot.hasAnimal ? game.targetAnimal : "💨") : "❓"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {game?.gameWon && (
+          <div className="absolute inset-0 z-[100] bg-orange-500 flex flex-col items-center justify-center animate-in fade-in duration-500">
+            <div className="text-[12rem] animate-bounce">{game.targetAnimal}</div>
+            <h2 className="text-6xl font-black text-white mb-8">FOUND IT!</h2>
+            <button onClick={resetGame} className="px-12 py-6 bg-white text-orange-600 rounded-[2rem] font-black text-2xl shadow-2xl">Play Again</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (view === "raceTap") {
+    const race = roomData.raceTap;
+    const uids = Object.keys(race?.racePositions || {});
+    return (
+      <div className="h-screen bg-green-50 flex flex-col touch-none" onClick={handleRaceTap}>
+        <Header />
+        <div className="flex-1 p-8 flex flex-col justify-around">
+          {['🐰', '🐢'].map((emoji, i) => {
+            const uid = uids[i] || `player-${i}`;
+            const pos = race?.racePositions[uid] || 0;
+            return (
+              <div key={i} className="relative w-full h-24 bg-white/50 rounded-full border-4 border-green-200 overflow-hidden">
+                <div 
+                  className="absolute top-0 left-0 h-full flex items-center text-6xl transition-all duration-300"
+                  style={{ left: `${Math.min(pos, 90)}%` }}
+                >
+                  {emoji}
+                </div>
+                {pos >= 100 && <Trophy className="absolute right-4 top-6 text-yellow-500 w-12 h-12" />}
+              </div>
+            );
+          })}
+        </div>
+        {!race?.winner && <div className="p-10 text-center font-black text-3xl text-green-600 animate-pulse">TAP TAP TAP!</div>}
+        {race?.winner && (
+          <div className="absolute inset-0 z-[100] bg-green-600 flex flex-col items-center justify-center">
+            <Trophy className="w-48 h-48 text-yellow-300 animate-bounce" />
+            <h2 className="text-6xl font-black text-white mb-10">WINNER!</h2>
+            <button onClick={resetGame} className="px-12 py-6 bg-white text-green-600 rounded-[2rem] font-black text-2xl shadow-2xl">Race Again</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (view === "tictactoe") {
+    const ttt = roomData.tictactoe;
+    return (
+      <div className="h-screen bg-purple-50 flex flex-col">
+        <Header />
+        <div className="flex-1 flex flex-col items-center justify-center p-4">
+          <div className="mb-6 text-2xl font-black text-purple-600">
+            {ttt.winner ? (ttt.winner === 'Draw' ? "It's a Draw!" : `${ttt.winner} Wins!`) : `Player ${ttt.turn}'s Turn`}
+          </div>
+          <div className="grid grid-cols-3 gap-3 w-full max-w-sm aspect-square bg-purple-200 p-3 rounded-[2.5rem] shadow-2xl">
+            {ttt.board.map((cell, i) => (
+              <button
+                key={i}
+                onClick={() => handleTTTClick(i)}
+                className={`bg-white rounded-2xl flex items-center justify-center text-6xl shadow-sm transition-all duration-300 ${ttt.lastMove === i ? 'animate-ping' : ''}`}
+              >
+                {cell === 'X' && <X className="w-16 h-16 text-red-500 stroke-[4]" />}
+                {cell === 'O' && <Circle className="w-16 h-16 text-blue-500 stroke-[4]" />}
+              </button>
+            ))}
+          </div>
+          {ttt.winner && (
+            <button onClick={resetGame} className="mt-10 px-10 py-5 bg-purple-600 text-white rounded-[2rem] font-black text-xl shadow-xl">New Game</button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (view === "drawing") return (
     <div className="h-screen bg-white flex flex-col touch-none">
@@ -255,35 +443,6 @@ export default function App() {
         </div>
     </div>
   );
-
-  if (view === "flashlight") {
-    const lights = Object.values(roomData.flashlight || {});
-    const allFound = roomData.hiddenItems?.length > 0 && roomData.hiddenItems?.every(i => i.found);
-    const maskStyle = {
-      background: allFound ? 'transparent' : `radial-gradient(circle at ${lights.map(l => `${l.x}% ${l.y}%`).join(', ')}, transparent 80px, rgba(15, 23, 42, 0.98) 160px)`
-    };
-
-    return (
-      <div className="h-screen bg-slate-950 relative overflow-hidden touch-none" onMouseMove={handleFlashlightMove} onTouchMove={handleFlashlightMove}>
-        <div className="absolute top-4 left-4 z-50"><button onClick={() => { playSound('click'); setView('menu'); }} className="p-3 bg-white/10 rounded-2xl text-white backdrop-blur-md"><Home /></button></div>
-        {roomData.hiddenItems?.map((item) => (
-          <button key={item.id} disabled={item.found} onClick={() => handleItemClick(item.id)} className={`absolute transition-all duration-700 transform -translate-x-1/2 -translate-y-1/2 ${item.found ? 'scale-150 opacity-0 pointer-events-none' : 'scale-100 opacity-100'}`} style={{ left: `${item.x}%`, top: `${item.y}%` }}>
-            {item.type === 'ghost' && <Ghost className="w-16 h-16 text-blue-200" />}
-            {item.type === 'star' && <Star className="w-16 h-16 text-yellow-300" />}
-            {item.type === 'heart' && <Heart className="w-16 h-16 text-red-400" />}
-          </button>
-        ))}
-        <div className="absolute inset-0 pointer-events-none transition-all duration-1000" style={maskStyle}></div>
-        {allFound && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/30 backdrop-blur-sm">
-            <Trophy className="w-40 h-40 text-yellow-400 mb-4 animate-bounce" />
-            <h2 className="text-5xl font-black text-white italic drop-shadow-lg text-center">YOU DID IT!</h2>
-            <button onClick={() => { playSound('click'); resetGame(); }} className="mt-10 px-10 py-5 bg-white text-indigo-600 rounded-[2rem] font-black text-xl shadow-2xl">Play Again?</button>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   if (view === "story") {
     const story = STORIES[roomData.storyIdx || 0];
