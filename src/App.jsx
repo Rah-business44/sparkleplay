@@ -75,7 +75,6 @@ export default function App() {
   const resetGame = useCallback(async () => {
     if (!roomDocRef) return;
     
-    // Peekaboo Setup
     const target = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
     const spots = Array(6).fill(null).map((_, i) => ({
       id: i,
@@ -123,7 +122,7 @@ export default function App() {
     });
   }, [user, roomDocRef, resetGame]);
 
-  // --- DRAWING PAD ---
+  // --- DRAWING ---
   useEffect(() => {
     if (view === "drawing" && canvasRef.current) {
       const canvas = canvasRef.current;
@@ -199,9 +198,7 @@ export default function App() {
 
   // --- RACE TAP ---
   useEffect(() => {
-  if (!user || !roomData.raceTap) return;
-
-  if (view === "raceTap" && !roomData.raceTap?.winner) {
+    if (view === "raceTap" && !roomData.raceTap?.winner) {
       raceInterval.current = setInterval(async () => {
         if (localTapCount.current > 0) {
           const currentPos = roomData.raceTap.racePositions[user.uid] || 0;
@@ -217,7 +214,6 @@ export default function App() {
   }, [view, roomData.raceTap, user, roomDocRef]);
 
   const handleRaceTap = () => {
-  if (!user || roomData.raceTap?.winner) return;
     if (roomData.raceTap?.winner) return;
     localTapCount.current += 2;
     playSound('pop');
@@ -239,7 +235,12 @@ export default function App() {
     };
     const win = calculateWinner(newBoard);
     playSound('boom');
-    await updateDoc(roomDocRef, { "tictactoe.board": newBoard, "tictactoe.turn": ttt.turn === 'X' ? 'O' : 'X', "tictactoe.winner": win, "tictactoe.lastMove": i });
+    await updateDoc(roomDocRef, { 
+      "tictactoe.board": newBoard, 
+      "tictactoe.turn": ttt.turn === 'X' ? 'O' : 'X', 
+      "tictactoe.winner": win, 
+      "tictactoe.lastMove": i 
+    });
     if (win && win !== 'Draw') playSound('win');
   };
 
@@ -271,15 +272,15 @@ export default function App() {
       <Header />
       <div className="flex-1 p-6 grid grid-cols-1 gap-4 overflow-y-auto">
         <button onClick={() => { playSound('click'); setView("hideReveal"); }} className="bg-orange-400 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl">
-            <div className="flex flex-col items-start"><Ghost className="mb-1" /><span className="text-xl font-black italic">Peekaboo Game</span></div>
+            <div className="flex flex-col items-start"><Ghost className="mb-1" /><span className="text-xl font-black italic text-left">Peekaboo Game</span></div>
             <ArrowRight />
         </button>
         <button onClick={() => { playSound('click'); setView("raceTap"); }} className="bg-green-500 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl">
-            <div className="flex flex-col items-start"><Zap className="mb-1" /><span className="text-xl font-black italic">Race Tap</span></div>
+            <div className="flex flex-col items-start"><Zap className="mb-1" /><span className="text-xl font-black italic text-left">Race Tap</span></div>
             <ArrowRight />
         </button>
         <button onClick={() => { playSound('click'); setView("tictactoe"); }} className="bg-purple-600 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl">
-            <div className="flex flex-col items-start"><Sparkles className="mb-1" /><span className="text-xl font-black italic">Tic Tac Toe</span></div>
+            <div className="flex flex-col items-start"><Sparkles className="mb-1" /><span className="text-xl font-black italic text-left">Tic Tac Toe</span></div>
             <ArrowRight />
         </button>
         <button onClick={() => { playSound('click'); setView("drawing"); }} className="bg-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border-4 border-blue-50 text-left">
