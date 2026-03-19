@@ -199,7 +199,9 @@ export default function App() {
 
   // --- RACE TAP ---
   useEffect(() => {
-    if (view === "raceTap" && !roomData.raceTap?.winner) {
+  if (!user || !roomData.raceTap) return;
+
+  if (view === "raceTap" && !roomData.raceTap?.winner) {
       raceInterval.current = setInterval(async () => {
         if (localTapCount.current > 0) {
           const currentPos = roomData.raceTap.racePositions[user.uid] || 0;
@@ -215,6 +217,7 @@ export default function App() {
   }, [view, roomData.raceTap, user, roomDocRef]);
 
   const handleRaceTap = () => {
+  if (!user || roomData.raceTap?.winner) return;
     if (roomData.raceTap?.winner) return;
     localTapCount.current += 2;
     playSound('pop');
