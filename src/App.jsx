@@ -256,6 +256,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (view !== "drawing") return;
+  
+    const originalHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+    const originalBodyOverscroll = document.body.style.overscrollBehavior;
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalBodyTouchAction = document.body.style.touchAction;
+  
+    document.documentElement.style.overscrollBehavior = "none";
+    document.body.style.overscrollBehavior = "none";
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+  
+    return () => {
+      document.documentElement.style.overscrollBehavior = originalHtmlOverscroll;
+      document.body.style.overscrollBehavior = originalBodyOverscroll;
+      document.body.style.overflow = originalBodyOverflow;
+      document.body.style.touchAction = originalBodyTouchAction;
+    };
+}, [view]);
+  
+  useEffect(() => {
     if (!user || !roomDocRef) return;
 
     const unsubscribe = onSnapshot(roomDocRef, async (snap) => {
@@ -1059,59 +1080,63 @@ const handleTTTClick = async (i) => {
   }
 
   if (view === "drawing") {
-    return (
-      <div className="min-h-[100dvh] bg-white flex flex-col">
-        <Header />
+  return (
+    <div className="h-[100dvh] overflow-hidden bg-white flex flex-col overscroll-none">
+      <Header />
 
-        <div className="flex-1 min-h-0 flex flex-col bg-slate-50">
-          <div className="flex-1 min-h-[50vh] relative overflow-hidden">
-            <canvas
-              ref={canvasRef}
-              className="w-full h-full touch-none"
-              onMouseDown={handleDrawStart}
-              onMouseMove={handleDrawMove}
-              onMouseUp={handleDrawEnd}
-              onMouseLeave={handleDrawEnd}
-              onTouchStart={handleDrawStart}
-              onTouchMove={handleDrawMove}
-              onTouchEnd={handleDrawEnd}
-            />
+      <div className="flex-1 min-h-0 flex flex-col bg-slate-50 overflow-hidden overscroll-none">
+        <div
+          className="relative flex-1 min-h-0 overflow-hidden overscroll-none"
+          style={{ touchAction: "none" }}
+        >
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full block"
+            style={{ touchAction: "none" }}
+            onMouseDown={handleDrawStart}
+            onMouseMove={handleDrawMove}
+            onMouseUp={handleDrawEnd}
+            onMouseLeave={handleDrawEnd}
+            onTouchStart={handleDrawStart}
+            onTouchMove={handleDrawMove}
+            onTouchEnd={handleDrawEnd}
+          />
+        </div>
+
+        <div className="shrink-0 bg-white border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-6px_20px_rgba(0,0,0,0.06)]">
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {DRAW_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  playSound("click");
+                  setCurrentColor(c);
+                }}
+                className={`shrink-0 w-11 h-11 rounded-full shadow-md border-2 transition-transform ${
+                  currentColor === c ? "scale-110 border-slate-400" : "border-slate-200"
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
           </div>
 
-          <div className="sticky bottom-0 z-40 bg-white border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-6px_20px_rgba(0,0,0,0.06)]">
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {DRAW_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => {
-                    playSound("click");
-                    setCurrentColor(c);
-                  }}
-                  className={`shrink-0 w-11 h-11 rounded-full shadow-md border-2 transition-transform ${
-                    currentColor === c ? "scale-110 border-slate-400" : "border-slate-200"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-
-            <div className="mt-2 flex justify-end">
-              <button
-                onClick={async () => {
-                  playSound("click");
-                  await clearDrawing();
-                }}
-                className="px-5 py-3 bg-red-100 text-red-600 rounded-2xl flex items-center gap-2 shadow-md active:bg-red-200"
-              >
-                <Eraser className="w-5 h-5" />
-                <span className="font-bold">Clear</span>
-              </button>
-            </div>
+          <div className="mt-2 flex justify-end">
+            <button
+              onClick={async () => {
+                playSound("click");
+                await clearDrawing();
+              }}
+              className="px-5 py-3 bg-red-100 text-red-600 rounded-2xl flex items-center gap-2 shadow-md active:bg-red-200"
+            >
+              <Eraser className="w-5 h-5" />
+              <span className="font-bold">Clear</span>
+            </button>
           </div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   if (view === "story") {
     const story = STORIES[roomData.storyIdx || 0] || STORIES[0];
