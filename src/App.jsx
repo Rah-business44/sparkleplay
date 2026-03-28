@@ -134,11 +134,12 @@ const createPeekabooRound = () => {
   }));
   spots[Math.floor(Math.random() * spots.length)].hasAnimal = true;
 
-  return {
-    hideSpots: spots,
-    targetAnimal,
-    gameWon: false
-  };
+ return {
+  hideSpots: spots,
+  targetAnimal,
+  gameWon: false,
+  winnerUid: null
+};
 };
 
 const createStoryRound = () => ({
@@ -156,7 +157,11 @@ const createTTTRound = () => ({
   board: Array(9).fill(null),
   turn: "X",
   winner: null,
-  lastMove: null
+  lastMove: null,
+  players: {
+    X: null,
+    O: null
+  }
 });
 
 const createInitialRoomState = () => ({
@@ -327,43 +332,113 @@ export default function App() {
   const raceStarted = Boolean(roomData?.raceTap?.started);
   const raceWinner = roomData?.raceTap?.winner || null;
 
+  const myTTTMark =
+  roomData?.tictactoe?.players?.X === user?.uid
+    ? "X"
+    : roomData?.tictactoe?.players?.O === user?.uid
+    ? "O"
+    : null;
+
+useEffect(() => {
+  if (!user || !roomDocRef || !roomData?.tictactoe?.players) return;
+
+  const alreadyAssigned =
+    roomData.tictactoe.players.X === user.uid ||
+    roomData.tictactoe.players.O === user.uid;
+
+  if (alreadyAssigned) return;
+
+  const assignTTTSeat = async () => {
+    try {
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(roomDocRef);
+        const data = snap.data() || {};
+        const ttt = data.tictactoe || createTTTRound();
+        const players = ttt.players || { X: null, O: null };
+
+        if (players.X === user.uid || players.O === user.uid) return;
+
+        if (!players.X) {
+          players.X = user.uid;
+        } else if (!players.O) {
+          players.O = user.uid;
+        } else {
+          return;
+        }
+
+        transaction.set(
+          roomDocRef,
+          {
+            tictactoe: {
+              ...ttt,
+              players
+            }
+          },
+          { merge: true }
+        );
+      });
+    } catch (err) {
+      console.error("TTT assignment failed:", err);
+    }
+  };
+
+  assignTTTSeat();
+}, [user, roomDocRef, roomData?.tictactoe?.players]);
+  
   // --- DRAWING LOGIC ---
   useEffect(() => {
-    if (view === "drawing" && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
+  if (view !== "drawing" || !canvasRef.current) return;
 
-      const redraw = () => {
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const canvas = canvasRef.current;
+  const ctx = canvas.getContext("2d");
 
-        (roomData.drawingLines || []).forEach((line) => {
-          if (!line.points || line.points.length < 2) return;
-          ctx.beginPath();
-          ctx.strokeStyle = line.color;
-          ctx.lineWidth = 6;
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-          ctx.moveTo(
-            (line.points[0].x / 100) * canvas.width,
-            (line.points[0].y / 100) * canvas.height
-          );
-          line.points.forEach((p) => {
-            ctx.lineTo((p.x / 100) * canvas.width, (p.y / 100) * canvas.height);
-          });
-          ctx.stroke();
-        });
-      };
+  const redrawAllLines = () => {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
 
-      redraw();
-      window.addEventListener("resize", redraw);
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
 
-      return () => {
-        window.removeEventListener("resize", redraw);
-      };
-    }
-  }, [view, roomData.drawingLines]);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    (roomData.drawingLines || []).forEach((line) => {
+      if (!line.points || line.points.length < 2) return;
+
+      ctx.beginPath();
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = 6;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      ctx.moveTo(
+        (line.points[0].x / 100) * rect.width,
+        (line.points[0].y / 100) * rect.height
+      );
+
+      line.points.forEach((p) => {
+        ctx.lineTo((p.x / 100) * rect.width, (p.y / 100) * rect.height);
+      });
+
+      ctx.stroke();
+    });
+  };
+
+  redrawAllLines();
+
+  const resizeObserver = new ResizeObserver(() => {
+    redrawAllLines();
+  });
+
+  resizeObserver.observe(canvas);
+
+  window.addEventListener("resize", redrawAllLines);
+
+  return () => {
+    resizeObserver.disconnect();
+    window.removeEventListener("resize", redrawAllLines);
+  };
+}, [view, roomData.drawingLines]);
 
   const handleDrawStart = (e) => {
     if (!canvasRef.current) return;
@@ -393,17 +468,18 @@ export default function App() {
     currentLine.current.push({ x, y });
 
     const ctx = canvasRef.current.getContext("2d");
+    const rect = canvasRef.current.getBoundingClientRect();
     const p1 = currentLine.current[currentLine.current.length - 2];
     if (!p1) return;
-
+    
     ctx.strokeStyle = currentColor;
     ctx.lineWidth = 6;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-
+    
     ctx.beginPath();
-    ctx.moveTo((p1.x / 100) * canvasRef.current.width, (p1.y / 100) * canvasRef.current.height);
-    ctx.lineTo((x / 100) * canvasRef.current.width, (y / 100) * canvasRef.current.height);
+    ctx.moveTo((p1.x / 100) * rect.width, (p1.y / 100) * rect.height);
+    ctx.lineTo((x / 100) * rect.width, (y / 100) * rect.height);
     ctx.stroke();
   };
 
@@ -436,7 +512,8 @@ export default function App() {
       playSound("win");
       await updateDoc(roomDocRef, {
         "hideReveal.hideSpots": newSpots,
-        "hideReveal.gameWon": true
+        "hideReveal.gameWon": true,
+        "hideReveal.winnerUid": user.uid
       });
     } else {
       playSound("click");
@@ -567,44 +644,52 @@ export default function App() {
   const player2Pos = roomData?.raceTap?.racePositions?.[player2Uid] || 0;
 
   // --- TIC TAC TOE ---
-  const handleTTTClick = async (i) => {
-    const ttt = roomData.tictactoe;
-    if (!ttt || ttt.winner || ttt.board[i] || !roomDocRef) return;
+const handleTTTClick = async (i) => {
+  const ttt = roomData.tictactoe;
+  if (!ttt || ttt.winner || ttt.board[i] || !roomDocRef || !user) return;
 
-    const newBoard = [...ttt.board];
-    newBoard[i] = ttt.turn;
+  const myMark =
+    ttt.players?.X === user.uid ? "X" :
+    ttt.players?.O === user.uid ? "O" :
+    null;
 
-    const getWinner = (board) => {
-      const lines = [
-        [0, 1, 2],
-        [3, 4, 5],
-        [6, 7, 8],
-        [0, 3, 6],
-        [1, 4, 7],
-        [2, 5, 8],
-        [0, 4, 8],
-        [2, 4, 6]
-      ];
+  if (!myMark) return;
+  if (ttt.turn !== myMark) return;
 
-      for (let [a, b, c] of lines) {
-        if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
-      }
+  const newBoard = [...ttt.board];
+  newBoard[i] = ttt.turn;
 
-      return board.every((x) => x) ? "Draw" : null;
-    };
+  const getWinner = (board) => {
+    const lines = [
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+      [0, 3, 6],
+      [1, 4, 7],
+      [2, 5, 8],
+      [0, 4, 8],
+      [2, 4, 6]
+    ];
 
-    const win = getWinner(newBoard);
-    playSound("boom");
+    for (let [a, b, c] of lines) {
+      if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
+    }
 
-    await updateDoc(roomDocRef, {
-      "tictactoe.board": newBoard,
-      "tictactoe.turn": ttt.turn === "X" ? "O" : "X",
-      "tictactoe.winner": win,
-      "tictactoe.lastMove": i
-    });
-
-    if (win && win !== "Draw") playSound("win");
+    return board.every((x) => x) ? "Draw" : null;
   };
+
+  const win = getWinner(newBoard);
+  playSound("boom");
+
+  await updateDoc(roomDocRef, {
+    "tictactoe.board": newBoard,
+    "tictactoe.turn": ttt.turn === "X" ? "O" : "X",
+    "tictactoe.winner": win,
+    "tictactoe.lastMove": i
+  });
+
+  if (win && win !== "Draw") playSound("win");
+};
 
   const Header = () => (
     <div className="sticky top-0 z-50 flex items-center justify-between p-4 bg-white border-b">
@@ -625,16 +710,34 @@ export default function App() {
         </span>
       </div>
 
-      <button
-        onClick={() => {
-          navigator.clipboard.writeText(window.location.href);
-          setCopyFeedback(true);
-          setTimeout(() => setCopyFeedback(false), 2000);
-        }}
-        className="p-2 rounded-xl bg-indigo-50"
-      >
-        {copyFeedback ? <Check className="text-green-600" /> : <Share className="w-6 h-6 text-indigo-600" />}
-      </button>
+<button
+  onClick={async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "SparklePlay",
+          text: `Join my SparklePlay room: ${roomId}`,
+          url: window.location.href
+        });
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopyFeedback(true);
+        setTimeout(() => setCopyFeedback(false), 2000);
+      }
+    } catch (err) {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopyFeedback(true);
+        setTimeout(() => setCopyFeedback(false), 2000);
+      } catch (copyErr) {
+        console.error("Share/copy failed:", copyErr);
+      }
+    }
+  }}
+  className="p-2 rounded-xl bg-indigo-50"
+>
+  {copyFeedback ? <Check className="text-green-600" /> : <Share className="w-6 h-6 text-indigo-600" />}
+</button>
     </div>
   );
 
@@ -769,20 +872,28 @@ export default function App() {
           </div>
         </div>
 
-        {roomData.hideReveal?.gameWon && (
-          <div className="fixed inset-0 z-50 bg-orange-500 flex flex-col items-center justify-center p-6 text-center">
-            <div className="text-[8rem] sm:text-[12rem] animate-bounce">
-              {roomData.hideReveal.targetAnimal}
-            </div>
-
-            <button
-              onClick={resetPeekaboo}
-              className="mt-6 px-12 py-6 bg-white text-orange-600 rounded-[2rem] font-black text-2xl shadow-2xl"
-            >
-              Play Again
-            </button>
+      {roomData.hideReveal?.gameWon && (
+        <div className="fixed inset-0 z-50 bg-orange-500 flex flex-col items-center justify-center p-6 text-center">
+          <div className="text-[8rem] sm:text-[12rem] animate-bounce">
+            {roomData.hideReveal.targetAnimal}
           </div>
-        )}
+
+          <div className="text-white text-2xl font-black mt-4">
+            {roomData.hideReveal?.winnerUid === roomData?.players?.player1
+              ? "Player 1 found it!"
+              : roomData.hideReveal?.winnerUid === roomData?.players?.player2
+              ? "Player 2 found it!"
+              : "We found it!"}
+          </div>
+
+    <button
+      onClick={resetPeekaboo}
+      className="mt-6 px-12 py-6 bg-white text-orange-600 rounded-[2rem] font-black text-2xl shadow-2xl"
+    >
+      Play Again
+    </button>
+  </div>
+)}
       </div>
     );
   }
@@ -914,6 +1025,10 @@ export default function App() {
                 ? "It's a Draw!"
                 : `${roomData.tictactoe.winner} Wins!`
               : `Player ${roomData.tictactoe?.turn}'s Turn`}
+          </div>
+
+          <div className="mb-4 text-sm font-bold text-slate-500 text-center">
+            {myTTTMark ? `You are ${myTTTMark}` : "Waiting for player assignment"}
           </div>
 
           <div className="grid grid-cols-3 gap-3 w-full max-w-sm aspect-square bg-purple-200 p-3 rounded-[2.5rem] shadow-2xl">
