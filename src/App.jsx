@@ -457,31 +457,30 @@ useEffect(() => {
   };
 
   const handleDrawMove = (e) => {
-    if (!isDrawing.current || !canvasRef.current) return;
-    if (e.cancelable) e.preventDefault();
+  if (!isDrawing.current || !canvasRef.current) return;
+  if (e.cancelable) e.preventDefault();
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const touch = e.touches ? e.touches[0] : e;
-    const x = ((touch.clientX - rect.left) / rect.width) * 100;
-    const y = ((touch.clientY - rect.top) / rect.height) * 100;
+  const rect = canvasRef.current.getBoundingClientRect();
+  const touch = e.touches ? e.touches[0] : e;
+  const x = ((touch.clientX - rect.left) / rect.width) * 100;
+  const y = ((touch.clientY - rect.top) / rect.height) * 100;
 
-    currentLine.current.push({ x, y });
+  currentLine.current.push({ x, y });
 
-    const ctx = canvasRef.current.getContext("2d");
-    const rect = canvasRef.current.getBoundingClientRect();
-    const p1 = currentLine.current[currentLine.current.length - 2];
-    if (!p1) return;
-    
-    ctx.strokeStyle = currentColor;
-    ctx.lineWidth = 6;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    
-    ctx.beginPath();
-    ctx.moveTo((p1.x / 100) * rect.width, (p1.y / 100) * rect.height);
-    ctx.lineTo((x / 100) * rect.width, (y / 100) * rect.height);
-    ctx.stroke();
-  };
+  const ctx = canvasRef.current.getContext("2d");
+  const p1 = currentLine.current[currentLine.current.length - 2];
+  if (!p1) return;
+
+  ctx.strokeStyle = currentColor;
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  ctx.beginPath();
+  ctx.moveTo((p1.x / 100) * rect.width, (p1.y / 100) * rect.height);
+  ctx.lineTo((x / 100) * rect.width, (y / 100) * rect.height);
+  ctx.stroke();
+};
 
   const handleDrawEnd = async () => {
     if (!isDrawing.current) return;
