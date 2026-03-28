@@ -233,8 +233,10 @@ export default function App() {
   }, [roomDocRef]);
 
   useEffect(() => {
+    let unsubscribeAuth = null;
+
     signInAnonymously(auth).then(() => {
-      onAuthStateChanged(auth, (u) => setUser(u));
+      unsubscribeAuth = onAuthStateChanged(auth, (u) => setUser(u));
     });
 
     const rId = new URLSearchParams(window.location.search).get("room");
@@ -242,18 +244,24 @@ export default function App() {
       setRoomId(rId);
       setView("menu");
     }
+
+    return () => {
+      if (unsubscribeAuth) unsubscribeAuth();
+    };
   }, []);
 
   useEffect(() => {
     if (!user || !roomDocRef) return;
 
-    return onSnapshot(roomDocRef, async (snap) => {
+    const unsubscribe = onSnapshot(roomDocRef, async (snap) => {
       if (snap.exists()) {
         setRoomData(snap.data());
       } else {
         await initializeRoom();
       }
     });
+
+    return () => unsubscribe();
   }, [user, roomDocRef, initializeRoom]);
 
   useEffect(() => {
@@ -295,7 +303,7 @@ export default function App() {
     };
 
     claimSeat();
-  }, [user, roomDocRef, roomData, db]);
+  }, [user, roomDocRef, roomData]);
 
   const myPlayerSlot =
     roomData?.players?.player1 === user?.uid
